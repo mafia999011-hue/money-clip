@@ -78,8 +78,10 @@ class AutoClipPipeline:
             # Phase 2 (Micro): Transcribe exact speech for this specific clip to achieve 100% voice-accurate subtitles
             progress_pct = 50 + int((idx + 1) / total_clips * 45)
             update_progress(f"Transcribing voice timestamps for Clip {c_id}/{total_clips}...", max(10, progress_pct - 5))
+            # Extract micro-snippet directly from source video container for frame-perfect timestamp synchronization
+            source_for_snippet = video_path if (video_path and os.path.exists(video_path)) else audio_path
             precise_words = self.client.transcribe_clip_audio(
-                audio_path=audio_path,
+                audio_path=source_for_snippet,
                 start_time=safe_start,
                 duration=clip_dur,
                 caption_language=caption_language

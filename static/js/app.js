@@ -419,7 +419,7 @@ fetchYtBtn.addEventListener('click', async () => {
   const liveDuration = document.getElementById('liveDuration')?.value || 180;
 
   fetchYtBtn.disabled = true;
-  ytStatusDisplay.textContent = 'Connecting & downloading video/live stream snippet (this may take a moment)...';
+  ytStatusDisplay.textContent = '⚡ Connecting & resolving high-speed stream...';
 
   try {
     const res = await fetch('/api/fetch_url', {
@@ -428,20 +428,51 @@ fetchYtBtn.addEventListener('click', async () => {
       body: JSON.stringify({ url, live_duration: liveDuration })
     });
     const data = await res.json();
-    if (data.video_id) {
+    
+    if (data.task_id) {
+      // Poll high-speed download progress
+      const pollDl = setInterval(async () => {
+        try {
+          const sRes = await fetch(`/api/download_status/${data.task_id}`);
+          const sData = await sRes.json();
+          if (sData.status === 'downloading') {
+            ytStatusDisplay.textContent = `⚡ ${sData.message || 'Downloading video...'}`;
+          } else if (sData.status === 'completed') {
+            clearInterval(pollDl);
+            fetchYtBtn.disabled = false;
+            const resData = sData.result || {};
+            currentVideoId = resData.video_id;
+            const platformTag = resData.platform ? `[${resData.platform}] ` : '';
+            ytStatusDisplay.textContent = `Ready: ${platformTag}${resData.title} (${Math.round(resData.duration || 0)}s)`;
+            generateBtn.disabled = false;
+            showToast(`Fetched: ${resData.title}`);
+          } else if (sData.status === 'failed') {
+            clearInterval(pollDl);
+            fetchYtBtn.disabled = false;
+            ytStatusDisplay.textContent = `Failed: ${sData.error || 'Download failed'}`;
+            showToast(sData.error || 'Failed to fetch video', 'error');
+          }
+        } catch (pollErr) {
+          clearInterval(pollDl);
+          fetchYtBtn.disabled = false;
+          ytStatusDisplay.textContent = `Error: ${pollErr.message}`;
+        }
+      }, 500);
+    } else if (data.video_id) {
       currentVideoId = data.video_id;
       const platformTag = data.platform ? `[${data.platform}] ` : '';
       ytStatusDisplay.textContent = `Ready: ${platformTag}${data.title} (${Math.round(data.duration || 0)}s)`;
       generateBtn.disabled = false;
+      fetchYtBtn.disabled = false;
       showToast(`Fetched: ${data.title}`);
     } else {
       ytStatusDisplay.textContent = `Failed: ${data.error || 'Could not download video'}`;
       showToast(data.error || 'Failed to fetch video', 'error');
+      fetchYtBtn.disabled = false;
     }
   } catch (err) {
     ytStatusDisplay.textContent = `Error: ${err.message}`;
     showToast(`Error: ${err.message}`, 'error');
-  } finally {
     fetchYtBtn.disabled = false;
   }
 });

@@ -335,11 +335,12 @@ Return ONLY valid raw JSON with no markdown formatting.
                 ],
                 "generationConfig": {
                     "temperature": 0.05,
+                    "maxOutputTokens": 8192,
                     "response_mime_type": "application/json"
                 }
             }
 
-            models_to_try = [self.model, "gemini-flash-latest", "gemini-3.5-flash-lite"]
+            models_to_try = [self.model, "gemini-2.5-flash", "gemini-flash-latest"]
             for attempt in range(2):
                 for model in models_to_try:
                     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={self.api_key}"
@@ -354,14 +355,28 @@ Return ONLY valid raw JSON with no markdown formatting.
                             if txt.endswith("```"):
                                 txt = txt[:-3]
                             txt = txt.strip()
+                            
+                            raw_words = []
                             try:
                                 parsed = json.loads(txt)
+                                raw_words = parsed.get("words", [])
                             except Exception:
-                                json_match = re.search(r'(\{[\s\S]*\})', txt)
-                                parsed = json.loads(json_match.group(1)) if json_match else {}
-                            raw_words = parsed.get("words", [])
+                                # Resilient regex extraction recovering word items even if quotes are unescaped or JSON was truncated
+                                pattern = r'\{\s*["\']word["\']\s*:\s*["\'](.*?)["\']\s*,\s*["\']start["\']\s*:\s*([0-9.]+)\s*,\s*["\']end["\']\s*:\s*([0-9.]+)'
+                                matches = re.findall(pattern, txt)
+                                if matches:
+                                    raw_words = [{"word": m[0], "start": float(m[1]), "end": float(m[2])} for m in matches]
+                                else:
+                                    json_match = re.search(r'(\{[\s\S]*\})', txt)
+                                    if json_match:
+                                        try:
+                                            parsed = json.loads(json_match.group(1))
+                                            raw_words = parsed.get("words", [])
+                                        except Exception:
+                                            pass
+
                             if raw_words:
-                                return self._sanitize_words(raw_words, duration, physical_onset=physical_onset)
+                                return self._sanitize_words(raw_words, duration)
                     except Exception as e:
                         print(f"[Money Clip Warning] Snippet transcription error with {model}: {e}")
                         continue
@@ -409,7 +424,7 @@ Return ONLY valid raw JSON with no markdown formatting.
             return 0.0
 
     @staticmethod
-    def _sanitize_words(words: list, clip_duration: float, physical_onset: float = 0.0) -> list:
+    def _sanitize_words(words: list, clip_duration: float) -> list:
         cleaned = []
         for w in words:
             word_str = str(w.get("word", "")).strip()
@@ -441,27 +456,17 @@ Return ONLY valid raw JSON with no markdown formatting.
                 )
                 item["end"] = min(item["start"] + 0.45, max(item["start"] + 0.2, next_s))
 
-        # Acoustic onset calibration:
-        # Gemini audio token latency delays timestamps by ~0.25s-0.35s relative to acoustic onset.
-        # Calibrating with physical voice onset ensures words highlight the instant the sound hits the ear.
-        gemini_first_start = cleaned[0]["start"]
-        if physical_onset > 0.05:
-            raw_delay = gemini_first_start - physical_onset
-            offset = min(0.38, max(0.12, raw_delay + 0.10))
-        else:
-            offset = min(0.32, max(0.15, gemini_first_start - 0.04))
-
-        if offset > 0.0:
-            for item in cleaned:
-                item["start"] = max(0.0, round(item["start"] - offset, 2))
-                item["end"] = max(item["start"] + 0.15, round(item["end"] - offset, 2))
+        # Clamp timestamps faithfully to audio snippet [0.0, clip_duration]
+        for item in cleaned:
+            item["start"] = max(0.0, min(clip_duration, round(item["start"], 2)))
+            item["end"] = max(item["start"] + 0.10, min(clip_duration, round(item["end"], 2)))
 
         # Ensure monotonicity
         for i in range(1, len(cleaned)):
             if cleaned[i]["start"] < cleaned[i - 1]["start"]:
                 cleaned[i]["start"] = cleaned[i - 1]["start"]
             if cleaned[i]["end"] <= cleaned[i]["start"]:
-                cleaned[i]["end"] = cleaned[i]["start"] + 0.2
+                cleaned[i]["end"] = min(clip_duration, cleaned[i]["start"] + 0.2)
 
         return cleaned
 

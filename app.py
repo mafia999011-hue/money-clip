@@ -53,6 +53,7 @@ def save_persistent_key(key: str):
 
 api_key_store = {"key": load_saved_key()}
 tasks = {}
+download_tasks = {}
 
 @app.route("/")
 def index():
@@ -105,17 +106,50 @@ def fetch_online_video():
     live_duration = int(data.get("live_duration", 180))
     if not url:
         return jsonify({"error": "No video link provided"}), 400
-    try:
-        res = download_online_video(url, app.config["UPLOAD_FOLDER"], live_duration=live_duration)
-        return jsonify({
-            "status": "ready",
-            "video_id": res["video_id"],
-            "title": res["title"],
-            "duration": res["duration"],
-            "platform": res.get("platform", "Video")
-        })
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+
+    task_id = f"dl_{uuid.uuid4().hex[:8]}"
+    download_tasks[task_id] = {
+        "status": "downloading",
+        "progress": 10,
+        "message": "Resolving video format & metadata...",
+        "result": None,
+        "error": None
+    }
+
+    def run_downloader():
+        try:
+            def update_dl_progress(msg, pct):
+                download_tasks[task_id]["message"] = msg
+                download_tasks[task_id]["progress"] = pct
+
+            res = download_online_video(
+                url,
+                app.config["UPLOAD_FOLDER"],
+                live_duration=live_duration,
+                progress_callback=update_dl_progress
+            )
+            download_tasks[task_id]["status"] = "completed"
+            download_tasks[task_id]["progress"] = 100
+            download_tasks[task_id]["result"] = res
+        except Exception as e:
+            download_tasks[task_id]["status"] = "failed"
+            download_tasks[task_id]["error"] = str(e)
+
+    thread = threading.Thread(target=run_downloader)
+    thread.daemon = True
+    thread.start()
+
+    return jsonify({
+        "status": "downloading",
+        "task_id": task_id
+    })
+
+@app.route("/api/download_status/<task_id>", methods=["GET"])
+def download_status(task_id):
+    task = download_tasks.get(task_id)
+    if not task:
+        return jsonify({"error": "Download task not found"}), 404
+    return jsonify(task)
 
 @app.route("/api/live/check", methods=["POST"])
 def check_live_stream():
