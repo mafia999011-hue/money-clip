@@ -1,5 +1,6 @@
 import os
 import re
+import subprocess
 from .reframer import VideoReframer
 from .gemini_client import GeminiClipperClient
 from .subtitler import SubtitleGenerator
@@ -59,41 +60,62 @@ class AutoClipPipeline:
         for idx, clip in enumerate(clips_data):
             c_id = clip.get("id", idx + 1)
             title = clip.get("title", f"Clip {c_id}")
-            start_t = float(clip.get("start_time", 0.0))
-            end_t = float(clip.get("end_time", min(video_duration, start_t + 30.0)))
-            words = clip.get("words", [])
+            raw_start = float(clip.get("start_time", 0.0))
+            raw_end = float(clip.get("end_time", raw_start + 30.0))
+
+            # Bulletproof sanity check: fix any inverted or out-of-bounds timestamps from AI
+            if raw_start > raw_end:
+                raw_start, raw_end = raw_end, raw_start
+            if (raw_end - raw_start) < 8.0:
+                raw_end = min(video_duration, raw_start + 25.0)
+            start_t = max(0.0, min(raw_start, max(0.0, video_duration - 5.0)))
+            end_t = max(start_t + 5.0, min(raw_end, video_duration))
+            clip_dur = round(end_t - start_t, 2)
 
             slug = re.sub(r'[^a-zA-Z0-9_-]', '_', title)[:25].strip('_')
             clip_base = f"clip_{c_id}_{slug}"
 
             ass_path = os.path.join(self.output_dir, f"{clip_base}.ass")
             clip_output_path = os.path.join(self.output_dir, f"{clip_base}.mp4")
+            raw_segment_path = os.path.join(self.output_dir, f"{clip_base}_seg.mp4")
 
-            # Subtle acoustic safety padding: 0.15s pre-roll and 0.25s post-roll
-            # to preserve starting/ending consonants and prevent jarring cuts
-            safe_start = max(0.0, start_t - 0.15)
-            safe_end = min(video_duration, end_t + 0.25)
-            clip_dur = max(0.5, safe_end - safe_start)
-
-            # Phase 2 (Micro): Transcribe exact speech for this specific clip to achieve 100% voice-accurate subtitles
             progress_pct = 50 + int((idx + 1) / total_clips * 45)
-            update_progress(f"Transcribing voice timestamps for Clip {c_id}/{total_clips}...", max(10, progress_pct - 5))
-            # Extract micro-snippet directly from source video container for frame-perfect timestamp synchronization
-            source_for_snippet = video_path if (video_path and os.path.exists(video_path)) else audio_path
+            update_progress(f"Extracting frame-perfect clip {c_id}/{total_clips}...", max(10, progress_pct - 6))
+
+            # Step 1: Pre-cut the exact clip segment using frame-accurate decode seeking
+            # This locks video & audio streams to the exact same millisecond
+            cut_cmd = [
+                "ffmpeg", "-y",
+                "-accurate_seek",
+                "-ss", f"{start_t:.3f}",
+                "-t", f"{clip_dur:.3f}",
+                "-i", video_path,
+                "-c:v", "libx264", "-preset", "ultrafast",
+                "-c:a", "aac",
+                "-avoid_negative_ts", "make_zero",
+                raw_segment_path
+            ]
+            subprocess.run(cut_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            render_source = raw_segment_path if os.path.exists(raw_segment_path) else video_path
+            render_start = 0.0 if os.path.exists(raw_segment_path) else start_t
+            render_end = clip_dur if os.path.exists(raw_segment_path) else end_t
+
+            # Step 2: Transcribe speech directly from the exact cut segment (0.0s to clip_dur)
+            update_progress(f"Transcribing voice timestamps for Clip {c_id}/{total_clips}...", max(10, progress_pct - 3))
             precise_words = self.client.transcribe_clip_audio(
-                audio_path=source_for_snippet,
-                start_time=safe_start,
+                audio_path=render_source,
+                start_time=render_start,
                 duration=clip_dur,
                 caption_language=caption_language
             )
 
-            # If micro-snippet speech transcription returned empty (offline or music video),
-            # fall back gracefully to timed hook/title words so subtitles are never blank
+            # Robust fallback: if speech transcription is empty (silent or instrumental),
+            # evenly pace words over the ENTIRE clip duration so subtitles never cut off early
             if not precise_words:
                 fallback_text = clip.get("hook") or clip.get("title", "")
                 tokens = [tok for tok in re.split(r'\s+', fallback_text) if tok.strip()]
                 if tokens:
-                    word_interval = min(0.45, max(0.2, clip_dur / max(1, len(tokens))))
+                    word_interval = max(0.2, clip_dur / max(1, len(tokens)))
                     precise_words = []
                     for i, tok in enumerate(tokens):
                         w_s = round(i * word_interval, 2)
@@ -109,39 +131,33 @@ class AutoClipPipeline:
                 dub_lang_name = SUPPORTED_DUB_LANGUAGES.get(dub_language, dub_language)
                 update_progress(f"AI Dubbing voiceover to {dub_lang_name} for Clip {c_id}/{total_clips}...", max(10, progress_pct - 2))
                 
-                # Extract spoken script from timestamps
                 spoken_script = " ".join([re.sub(r'[^a-zA-Z0-9\u0600-\u06FF\u0400-\u04FF\u3040-\u30FF\u4E00-\u9FFF]', ' ', w.get("word", "")).strip() for w in precise_words if w.get("word")])
                 if len(spoken_script.strip()) < 10:
                     spoken_script = clip.get("hook") or title
 
-                # Translate spoken script for voiceover
                 translated_script = AIDubber.translate_script(spoken_script, dub_language, api_key=self.api_key)
 
-                # Translate hook banner headline if present
                 if hook_headline:
                     translated_hook = AIDubber.translate_script(hook_headline, dub_language, api_key=self.api_key)
                     if translated_hook:
                         hook_headline = translated_hook
 
-                # Synthesize neural voiceover
                 raw_dub_path = os.path.join(self.output_dir, f"{clip_base}_dub.mp3")
                 synth_audio = AIDubber.synthesize_speech(translated_script, dub_language, raw_dub_path, target_duration=clip_dur)
 
-                # Mix AI voice with 12% ducked original video audio
                 if synth_audio and os.path.exists(synth_audio):
                     mixed_audio_path = os.path.join(self.output_dir, f"{clip_base}_mixed.aac")
                     audio_override_path = AIDubber.duck_and_mix_audio(
-                        original_input=video_path,
-                        start_time=safe_start,
+                        original_input=render_source,
+                        start_time=render_start,
                         duration=clip_dur,
                         dub_audio_path=synth_audio,
                         output_audio_path=mixed_audio_path
                     )
 
-                    # Re-align subtitle words with translated script
                     dub_tokens = [tok for tok in re.split(r'\s+', translated_script) if tok.strip()]
                     if dub_tokens:
-                        dub_interval = min(0.42, max(0.18, clip_dur / len(dub_tokens)))
+                        dub_interval = max(0.18, clip_dur / len(dub_tokens))
                         dub_words = []
                         for i, tok in enumerate(dub_tokens):
                             w_s = round(i * dub_interval, 2)
@@ -167,9 +183,9 @@ class AutoClipPipeline:
             update_progress(f"Rendering Clip {c_id}/{total_clips}: {title} ({aspect_ratio}, {video_quality})", progress_pct)
 
             VideoRenderer.render_clip(
-                video_path=video_path,
-                start_time=safe_start,
-                end_time=safe_end,
+                video_path=render_source,
+                start_time=render_start,
+                end_time=render_end,
                 output_path=clip_output_path,
                 reframe_mode=reframe_mode,
                 aspect_ratio=aspect_ratio,
@@ -183,6 +199,13 @@ class AutoClipPipeline:
                 audio_override_path=audio_override_path
             )
 
+            # Clean up intermediate segment
+            if os.path.exists(raw_segment_path):
+                try:
+                    os.remove(raw_segment_path)
+                except Exception:
+                    pass
+
             rendered_clips.append({
                 "id": c_id,
                 "title": title,
@@ -192,9 +215,9 @@ class AutoClipPipeline:
                 "curiosity_gap": clip.get("curiosity_gap", "9.6/10"),
                 "drop_off_risk": clip.get("drop_off_risk", "Very Low"),
                 "viral_action_tip": clip.get("viral_action_tip", "Pin an engaging question in comments to increase algorithmic watch time."),
-                "start_time": safe_start,
-                "end_time": safe_end,
-                "duration": round(safe_end - safe_start, 1),
+                "start_time": start_t,
+                "end_time": end_t,
+                "duration": clip_dur,
                 "quality": video_quality,
                 "aspect_ratio": aspect_ratio,
                 "dub_language": dub_language,

@@ -345,7 +345,7 @@ Return ONLY valid raw JSON with no markdown formatting.
                 for model in models_to_try:
                     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={self.api_key}"
                     try:
-                        r = requests.post(url, json=payload, timeout=(15, 60))
+                        r = requests.post(url, json=payload, timeout=(10, 25))
                         if r.status_code == 200:
                             txt = r.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
                             if txt.startswith("```json"):
