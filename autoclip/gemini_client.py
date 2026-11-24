@@ -19,8 +19,8 @@ except Exception:
 class GeminiClipperClient:
     def __init__(self, api_key: str = None):
         self.api_key = api_key or os.environ.get("GEMINI_API_KEY", "")
-        # gemini-flash-lite-latest is fastest, most reliable, and has 0% 503 high-demand errors
-        self.model = "gemini-flash-lite-latest"
+        # gemini-3.1-flash-lite is the fastest, next-gen model
+        self.model = "gemini-3.1-flash-lite"
 
     def extract_audio(self, video_path: str, output_audio_path: str = None, video_duration: float = 60.0) -> str:
         if not output_audio_path:
@@ -210,7 +210,7 @@ Return ONLY raw JSON with no markdown backticks.
         }
 
         response = None
-        models_to_try = [self.model, "gemini-flash-latest", "gemini-3.5-flash-lite"]
+        models_to_try = [self.model, "gemini-3.1-flash-lite-preview", "gemini-flash-lite-latest", "gemini-2.5-flash"]
         last_error = ""
 
         import time
@@ -340,7 +340,7 @@ Return ONLY valid raw JSON with no markdown formatting.
                 }
             }
 
-            models_to_try = [self.model, "gemini-2.5-flash", "gemini-flash-latest"]
+            models_to_try = [self.model, "gemini-3.1-flash-lite-preview", "gemini-flash-lite-latest", "gemini-2.5-flash"]
             for attempt in range(2):
                 for model in models_to_try:
                     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={self.api_key}"

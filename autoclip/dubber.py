@@ -50,7 +50,7 @@ CRITICAL RULES:
 - Keep roughly the same length and cadence so it fits video timing.
 - Do NOT add markdown, explanations, or quotes. Output ONLY the translated spoken sentence.
 """
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-lite-latest:generateContent?key={api_key}"
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key={api_key}"
         payload = {
             "contents": [{"parts": [{"text": prompt}]}],
             "generationConfig": {"temperature": 0.2, "maxOutputTokens": 200}
