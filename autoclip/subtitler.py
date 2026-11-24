@@ -220,13 +220,13 @@ class SubtitleGenerator:
             "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text"
         ]
 
-        # Top Hook Banner: displays for the opening 4.5 seconds with gentle fade
+        # Top Hook Banner: displays for the opening 4.5 seconds with explosive scale-pop entrance
         if show_hook_header and hook_headline:
             clean_headline = hook_headline.strip().upper()
             hook_duration = min(4.5, max(1.5, clip_end - clip_start))
             end_time_str = cls.format_ass_time(hook_duration)
             ass_content.append(
-                f"Dialogue: 1,0:00:00.00,{end_time_str},HookHeader,,0,0,0,,{{\\fad(200,400)\\b1}}🔥 {clean_headline} 🔥"
+                f"Dialogue: 1,0:00:00.00,{end_time_str},HookHeader,,0,0,0,,{{\\fad(60,300)\\fscx135\\fscy135\\t(0,220,\\fscx100\\fscy100)\\b1}}🔥 {clean_headline} 🔥"
             )
 
         for c_idx, chunk in enumerate(chunks):
@@ -250,11 +250,14 @@ class SubtitleGenerator:
                 line_parts = []
                 for idx, item in enumerate(chunk):
                     if idx == active_idx:
-                        # Animated active pop / bounce effect with highlight color (120% Hormozi pop)
+                        # Enhanced dynamic scale-pop (130% for viral power words, 122% standard)
+                        clean_w = re.sub(r'[^A-Z0-9]', '', str(item["word"]).upper())
+                        is_power = clean_w in EMOJI_KEYWORDS or clean_w in {"NEVER", "ALWAYS", "SECRET", "MISTAKE", "CRAZY", "STOP", "INSANE", "WAIT", "SHOCKING", "DANGER", "MONEY"}
+                        scale = "130" if is_power else "122"
                         line_parts.append(
-                            r"{\fscx120\fscy120\c" + highlight_color + r"\b1}" +
+                            rf"{{\fscx{scale}\fscy{scale}\c{highlight_color}\b1}}" +
                             item["word"] +
-                            r"{\fscx100\fscy100\c" + base_color + r"\b1}"
+                            rf"{{\fscx100\fscy100\c{base_color}\b1}}"
                         )
                     else:
                         line_parts.append(item["word"])

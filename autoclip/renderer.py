@@ -59,6 +59,42 @@ PROGRESS_BAR_COLORS = {
 
 class VideoRenderer:
     @staticmethod
+    def get_or_create_hook_sfx() -> str:
+        """Ensures the cinematic sub-bass whoosh impact SFX asset exists."""
+        sfx_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "assets", "hook_whoosh.wav")
+        if os.path.exists(sfx_path) and os.path.getsize(sfx_path) > 1000:
+            return sfx_path
+        os.makedirs(os.path.dirname(sfx_path), exist_ok=True)
+        try:
+            import wave
+            import struct
+            import math
+            sample_rate = 44100
+            duration = 0.45
+            n_samples = int(sample_rate * duration)
+            with wave.open(sfx_path, 'w') as wav:
+                wav.setnchannels(1)
+                wav.setsampwidth(2)
+                wav.setframerate(sample_rate)
+                frames = bytearray()
+                for i in range(n_samples):
+                    t = i / sample_rate
+                    progress = t / duration
+                    freq = 320.0 * (1.0 - progress)**1.8 + 45.0
+                    if t < 0.04:
+                        env = t / 0.04
+                    else:
+                        env = math.exp(-6.0 * (t - 0.04))
+                    val = 0.85 * math.sin(2.0 * math.pi * freq * t) + 0.15 * math.sin(4.0 * math.pi * freq * t)
+                    sample = int(val * env * 24000.0)
+                    sample = max(-32767, min(32767, sample))
+                    frames.extend(struct.pack('<h', sample))
+                wav.writeframes(frames)
+            return sfx_path
+        except Exception:
+            return None
+
+    @staticmethod
     def check_audio_stream(video_path: str) -> bool:
         """Checks if input file contains an active audio stream."""
         cmd = [
@@ -87,7 +123,9 @@ class VideoRenderer:
         enable_color_pop: bool = True,
         enable_audio_boost: bool = True,
         subtitle_preset: str = "hormozi",
-        audio_override_path: str = None
+        audio_override_path: str = None,
+        enable_hook_sfx: bool = True,
+        enable_seamless_loop: bool = True
     ) -> str:
         """
         Extracts, reframes (to 9:16 vertical, 1:1 square, 16:9 landscape, or 4:5 portrait),
@@ -153,7 +191,7 @@ class VideoRenderer:
         elif reframe_mode == "center_crop":
             # Universal Dynamic punch-in zoom for center crop (scales and crops center region to target AR)
             if enable_dynamic_zoom:
-                crop_expr = f"crop='w=min(iw,ih*({w}/{h}))*if(lt(mod(t,6),3.4),1,0.92)':'h=min(ih,iw*({h}/{w}))*if(lt(mod(t,6),3.4),1,0.92)':x=(iw-ow)/2:y=(ih-oh)/2"
+                crop_expr = f"crop='w=min(iw,ih*({w}/{h}))*if(lt(mod(t,3.6),2.1),1,0.93)':'h=min(ih,iw*({h}/{w}))*if(lt(mod(t,3.6),2.1),1,0.93)':x=(iw-ow)/2:y=(ih-oh)/2"
             else:
                 crop_expr = f"crop='w=min(iw,ih*({w}/{h}))':'h=min(ih,iw*({h}/{w}))':x=(iw-ow)/2:y=(ih-oh)/2"
             filters.append(
@@ -164,7 +202,7 @@ class VideoRenderer:
         else:
             # Cinematic Blurred Background (Universal default for ANY aspect ratio)
             if enable_dynamic_zoom:
-                fg_crop = "crop='w=if(lt(mod(t,6),3.4), iw, iw*0.92)':h='if(lt(mod(t,6),3.4), ih, ih*0.92)':x=(iw-ow)/2:y=(ih-oh)/2,"
+                fg_crop = "crop='w=if(lt(mod(t,3.6),2.1), iw, iw*0.93)':h='if(lt(mod(t,3.6),2.1), ih, ih*0.93)':x=(iw-ow)/2:y=(ih-oh)/2,"
             else:
                 fg_crop = ""
             filters.append(
@@ -194,26 +232,57 @@ class VideoRenderer:
             filters.append(f"{last_v_stream}null[v_out]")
             last_v_stream = "[v_out]"
 
-        # Audio handling: check for audio_override_path (from AI Dubbing / voiceover ducking)
-        fade_in_dur = 0.04  # Ultra-fast 40ms de-click fade-in so opening words are never muffled
-        fade_out_dur = min(0.2, duration / 4.0)
+        # Audio handling: check for voiceover override, sound effects, and seamless loop fades
+        fade_in_dur = 0.04  # Ultra-fast 40ms de-click fade-in
+        loop_fade = 0.05 if enable_seamless_loop else 0.15
+        fade_out_dur = min(loop_fade, duration / 5.0)
         out_start = max(0.0, duration - fade_out_dur)
 
         has_override_audio = bool(audio_override_path and os.path.exists(audio_override_path))
+        
+        # Determine extra audio inputs (dubbed voice and/or hook whoosh SFX)
+        extra_inputs = []
+        voice_stream = None
+        sfx_stream = None
+        current_input_idx = 1
 
         if has_override_audio:
-            filters.append(
-                f"[1:a]afade=t=in:ss=0:d={fade_in_dur:.2f},afade=t=out:st={out_start:.2f}:d={fade_out_dur:.2f}[a_out]"
-            )
-            last_a_stream = "[a_out]"
+            extra_inputs.extend(["-i", audio_override_path])
+            voice_stream = f"[{current_input_idx}:a]"
+            current_input_idx += 1
         elif has_audio:
-            if enable_audio_boost:
+            voice_stream = "[0:a]"
+
+        sfx_path = cls.get_or_create_hook_sfx() if enable_hook_sfx else None
+        if enable_hook_sfx and sfx_path and os.path.exists(sfx_path):
+            extra_inputs.extend(["-i", sfx_path])
+            sfx_stream = f"[{current_input_idx}:a]"
+            current_input_idx += 1
+
+        if voice_stream:
+            if has_override_audio:
                 filters.append(
-                    f"[0:a]afade=t=in:ss=0:d={fade_in_dur:.2f},afade=t=out:st={out_start:.2f}:d={fade_out_dur:.2f},"
-                    f"acompressor=threshold=-18dB:ratio=3:attack=5:release=50,volume=1.2[a_out]"
+                    f"{voice_stream}afade=t=in:ss=0:d={fade_in_dur:.2f},afade=t=out:st={out_start:.2f}:d={fade_out_dur:.2f}[a_voice]"
+                )
+            elif enable_audio_boost:
+                filters.append(
+                    f"{voice_stream}afade=t=in:ss=0:d={fade_in_dur:.2f},afade=t=out:st={out_start:.2f}:d={fade_out_dur:.2f},"
+                    f"acompressor=threshold=-18dB:ratio=3:attack=5:release=50,volume=1.2[a_voice]"
                 )
             else:
-                filters.append(f"[0:a]afade=t=in:ss=0:d={fade_in_dur:.2f},afade=t=out:st={out_start:.2f}:d={fade_out_dur:.2f}[a_out]")
+                filters.append(
+                    f"{voice_stream}afade=t=in:ss=0:d={fade_in_dur:.2f},afade=t=out:st={out_start:.2f}:d={fade_out_dur:.2f}[a_voice]"
+                )
+
+            if sfx_stream:
+                # Mix voice dialogue with punchy opening whoosh impact (attenuated -12dB)
+                filters.append(f"{sfx_stream}volume=0.8[a_sfx]")
+                filters.append(f"[a_voice][a_sfx]amix=inputs=2:duration=first:dropout_transition=2[a_out]")
+                last_a_stream = "[a_out]"
+            else:
+                last_a_stream = "[a_voice]"
+        elif sfx_stream:
+            filters.append(f"{sfx_stream}volume=0.8[a_out]")
             last_a_stream = "[a_out]"
         else:
             last_a_stream = None
@@ -226,9 +295,7 @@ class VideoRenderer:
             "-t", str(duration),
             "-i", video_path,
         ]
-
-        if has_override_audio:
-            cmd.extend(["-i", audio_override_path])
+        cmd.extend(extra_inputs)
 
         cmd.extend([
             "-filter_complex", filter_str,

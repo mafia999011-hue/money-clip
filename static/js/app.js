@@ -583,6 +583,8 @@ generateBtn.addEventListener('click', async () => {
   const enableProgressBar = document.getElementById('enableProgressBar')?.checked ?? true;
   const enableColorPop = document.getElementById('enableColorPop')?.checked ?? true;
   const enableAudioBoost = document.getElementById('enableAudioBoost')?.checked ?? true;
+  const enableHookSfx = document.getElementById('enableHookSfx')?.checked ?? true;
+  const enableSeamlessLoop = document.getElementById('enableSeamlessLoop')?.checked ?? true;
 
   try {
     const res = await fetch('/api/process', {
@@ -603,7 +605,9 @@ generateBtn.addEventListener('click', async () => {
         enable_dynamic_zoom: enableDynamicZoom,
         enable_progress_bar: enableProgressBar,
         enable_color_pop: enableColorPop,
-        enable_audio_boost: enableAudioBoost
+        enable_audio_boost: enableAudioBoost,
+        enable_hook_sfx: enableHookSfx,
+        enable_seamless_loop: enableSeamlessLoop
       })
     });
     const data = await res.json();

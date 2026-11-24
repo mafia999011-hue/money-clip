@@ -124,14 +124,23 @@ Analyze this audio track to identify VIRAL, HIGH-RETENTION GOLD:
 
 1. {lang_instruction.strip()}
 
-2. VIRAL SELECTION CRITERIA:
+2. ELITE VIRAL SELECTION & HOOK CRITERIA (MAX RETENTION):
    - Identify the {count_str} highest performing, self-contained highlight clips for YouTube Shorts, TikTok, and Instagram Reels.
    - {length_instructions}
-   - HOOK PURITY: The first 3 seconds MUST immediately grab attention (shocking claim, surprising revelation, question, or high-energy moment).
-   - CLEAN BOUNDARIES:
-     * `start_time` MUST be the natural start of an energetic sentence or thought. NEVER start mid-word.
-     * `end_time` MUST be the natural conclusion of a thought or punchline. NEVER cut off mid-sentence.
-   - STORY ARC: Each clip must feel complete: Hook -> Delivery / Insight -> Punchline / Climax.
+   - IN MEDIAS RES (START IN THE ACTION):
+     * NEVER start on introductory filler (e.g., "Hey guys", "So today", "In this video", "Welcome back", "Like and subscribe").
+     * Cut directly into the explosive claim, high-energy phrase, or surprising revelation at 0.0s.
+   - THE OPEN CURIOSITY LOOP:
+     * The opening 3 seconds MUST pose an unresolved tension, shocking mystery, or high-stakes challenge.
+     * The resolution or punchline MUST resolve in the final 3-5 seconds of the clip to guarantee a 95%+ completion rate.
+   - SEAMLESS ENDLESS REPLAY LOOP:
+     * When selecting boundaries, pick an ending that seamlessly loops back into the opening hook, multiplying replay metrics.
+   - HOOK PURITY & STOP-RATE:
+     * Only select segments with an organic hook_score >= 88.
+   - CLEAN FRAME-PERFECT BOUNDARIES:
+     * `start_time` MUST be the precise natural start of an energetic sentence or thought. NEVER start mid-word.
+     * `end_time` MUST be the crisp, natural conclusion of a punchline. NEVER cut off mid-sentence.
+   - 3-ACT STORY ARC: Hook (0-3s) -> Rising Value & Retention (3-18s) -> Punchline & Payoff (End).
 
 3. FOR EACH CLIP, OUTPUT:
    - title: High CTR, click-worthy title (max 7 words).
@@ -145,10 +154,10 @@ Analyze this audio track to identify VIRAL, HIGH-RETENTION GOLD:
      * "⚡ Value Bomb & Hack"
    - start_time: Clip start time in seconds (float).
    - end_time: Clip end time in seconds (float).
-   - virality_score: Overall virality score (70 to 99).
-   - hook_score: Hook stop-rate score (70 to 99).
-   - flow_score: Story momentum score (70 to 99).
-   - engagement_score: Comment & share trigger score (70 to 99).
+   - virality_score: Overall virality score (80 to 99).
+   - hook_score: Hook stop-rate score (85 to 99).
+   - flow_score: Story momentum score (80 to 99).
+   - engagement_score: Comment & share trigger score (80 to 99).
    - curiosity_gap: Rating string (e.g. "9.8/10", "9.5/10").
    - drop_off_risk: "Very Low", "Low", or "Moderate".
    - reason: Detailed psychological retention explanation (why viewers won't swipe away).

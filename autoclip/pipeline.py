@@ -31,6 +31,8 @@ class AutoClipPipeline:
         enable_progress_bar: bool = True,
         enable_color_pop: bool = True,
         enable_audio_boost: bool = True,
+        enable_hook_sfx: bool = True,
+        enable_seamless_loop: bool = True,
         progress_callback = None
     ) -> dict:
         def update_progress(stage: str, percent: int):
@@ -196,7 +198,9 @@ class AutoClipPipeline:
                 enable_color_pop=enable_color_pop,
                 enable_audio_boost=enable_audio_boost,
                 subtitle_preset=subtitle_preset,
-                audio_override_path=audio_override_path
+                audio_override_path=audio_override_path,
+                enable_hook_sfx=enable_hook_sfx,
+                enable_seamless_loop=enable_seamless_loop
             )
 
             # Clean up intermediate segment

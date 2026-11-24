@@ -202,6 +202,8 @@ def process():
     enable_progress_bar = data.get("enable_progress_bar", True)
     enable_color_pop = data.get("enable_color_pop", True)
     enable_audio_boost = data.get("enable_audio_boost", True)
+    enable_hook_sfx = data.get("enable_hook_sfx", True)
+    enable_seamless_loop = data.get("enable_seamless_loop", True)
 
     if not video_id:
         return jsonify({"error": "Missing video_id"}), 400
@@ -245,6 +247,8 @@ def process():
                 enable_progress_bar=enable_progress_bar,
                 enable_color_pop=enable_color_pop,
                 enable_audio_boost=enable_audio_boost,
+                enable_hook_sfx=enable_hook_sfx,
+                enable_seamless_loop=enable_seamless_loop,
                 progress_callback=update_progress
             )
             tasks[task_id]["status"] = "completed"
